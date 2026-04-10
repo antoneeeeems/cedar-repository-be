@@ -9,6 +9,30 @@ const router = Router()
 
 router.use(requireAuth, requireAdmin)
 
+const submissionIdParamsSchema = z.object({
+  id: z.string().regex(/^\d+$/),
+})
+
+const submissionDraftSchema = z
+  .object({
+    title: z.string(),
+    firstName: z.string(),
+    middleName: z.string(),
+    lastName: z.string(),
+    publishedOn: z.string(),
+    department: z.string(),
+    documentType: z.string(),
+    degree: z.string(),
+    thesisAdvisor: z.string(),
+    panelChair: z.string(),
+    panelMembers: z.string(),
+    keywords: z.string(),
+    abstract: z.string(),
+    fileName: z.string(),
+    fileSize: z.number().optional(),
+  })
+  .partial()
+
 router.get('/submissions', async (req, res, next) => {
   try {
     const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
@@ -36,14 +60,20 @@ router.get('/submissions/draft', async (req, res, next) => {
   }
 })
 
-router.put('/submissions/draft', async (req, res, next) => {
-  try {
-    const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
-    res.json(await service.saveSubmissionDraft(req.body))
-  } catch (error) {
-    next(error)
-  }
-})
+router.put(
+  '/submissions/draft',
+  validateRequest({
+    body: submissionDraftSchema,
+  }),
+  async (req, res, next) => {
+    try {
+      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      res.json(await service.saveSubmissionDraft(req.body))
+    } catch (error) {
+      next(error)
+    }
+  },
+)
 
 router.delete('/submissions/draft', async (req, res, next) => {
   try {
@@ -60,7 +90,7 @@ router.post(
   validateRequest({
     body: z.object({
       name: z.string().min(1),
-      email: z.string().email(),
+      email: z.email(),
     }),
   }),
   async (req, res, next) => {
@@ -73,27 +103,42 @@ router.post(
   },
 )
 
-router.get('/submissions/:id', async (req, res, next) => {
-  try {
-    const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
-    res.json(await service.getSubmissionById(req.params.id))
-  } catch (error) {
-    next(error)
-  }
-})
+router.get(
+  '/submissions/:id',
+  validateRequest({
+    params: submissionIdParamsSchema,
+  }),
+  async (req, res, next) => {
+    try {
+      const submissionId = req.params.id as string
+      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      res.json(await service.getSubmissionById(submissionId))
+    } catch (error) {
+      next(error)
+    }
+  },
+)
 
-router.get('/submissions/:id/reviews', async (req, res, next) => {
-  try {
-    const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
-    res.json(await service.getSubmissionReviewHistory(req.params.id))
-  } catch (error) {
-    next(error)
-  }
-})
+router.get(
+  '/submissions/:id/reviews',
+  validateRequest({
+    params: submissionIdParamsSchema,
+  }),
+  async (req, res, next) => {
+    try {
+      const submissionId = req.params.id as string
+      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      res.json(await service.getSubmissionReviewHistory(submissionId))
+    } catch (error) {
+      next(error)
+    }
+  },
+)
 
 router.post(
   '/submissions/:id/review',
   validateRequest({
+    params: submissionIdParamsSchema,
     body: z.object({
       action: z.enum(['approve', 'revise', 'reject']),
       actor: z.string().min(1).optional(),
@@ -108,10 +153,11 @@ router.post(
   }),
   async (req, res, next) => {
     try {
+      const submissionId = req.params.id as string
       const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
       res.json(
         await service.reviewSubmission(
-          String(req.params.id),
+          submissionId,
           req.body.action,
           req.body.actor ?? req.user?.fullName ?? req.user?.email ?? 'CEDAR Admin',
           req.body.payload,

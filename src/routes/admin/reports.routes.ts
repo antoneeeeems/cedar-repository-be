@@ -15,23 +15,58 @@ const reportFiltersSchema = z.object({
   status: z.string().optional(),
 })
 
-router.get('/snapshot', async (req, res, next) => {
-  try {
-    const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
-    res.json(await service.getReportSnapshot(req.query))
-  } catch (error) {
-    next(error)
-  }
+const scheduledReportIdParamsSchema = z.object({
+  id: z.uuid(),
 })
 
-router.get('/snapshot-with-data', async (req, res, next) => {
-  try {
-    const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
-    res.json(await service.getReportSnapshotWithData(req.query))
-  } catch (error) {
-    next(error)
-  }
+const scheduledReportSchema = z.object({
+  preset: z.enum([
+    'executive-summary',
+    'submission-pipeline',
+    'department-performance',
+    'user-access-usage',
+    'audit-trail',
+  ]),
+  format: z.enum(['csv', 'json', 'pdf', 'xlsx']),
+  frequency: z.enum(['daily', 'weekly', 'monthly']),
+  recipientEmail: z.email(),
+  enabled: z.boolean(),
+  lastRunAt: z.string().optional(),
 })
+
+const scheduledReportPatchSchema = scheduledReportSchema.partial().refine((payload) => Object.keys(payload).length > 0, {
+  message: 'At least one field must be provided for update.',
+})
+
+router.get(
+  '/snapshot',
+  validateRequest({
+    query: reportFiltersSchema,
+  }),
+  async (req, res, next) => {
+    try {
+      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      res.json(await service.getReportSnapshot(req.query))
+    } catch (error) {
+      next(error)
+    }
+  },
+)
+
+router.get(
+  '/snapshot-with-data',
+  validateRequest({
+    query: reportFiltersSchema,
+  }),
+  async (req, res, next) => {
+    try {
+      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      res.json(await service.getReportSnapshotWithData(req.query))
+    } catch (error) {
+      next(error)
+    }
+  },
+)
 
 router.get(
   '/export',
@@ -52,8 +87,8 @@ router.get(
       const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
       res.json(
         await service.getReportExportPayload(
-          String(req.query.preset) as import('@/types/admin').ReportExportPreset,
-          String(req.query.format) as import('@/types/admin').ReportExportFormat,
+          req.query.preset as import('@/types/admin').ReportExportPreset,
+          req.query.format as import('@/types/admin').ReportExportFormat,
           req.query,
         ),
       )
@@ -89,32 +124,53 @@ router.get('/scheduled', async (req, res, next) => {
   }
 })
 
-router.post('/scheduled', async (req, res, next) => {
-  try {
-    const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
-    res.json(await service.createScheduledReport(req.body))
-  } catch (error) {
-    next(error)
-  }
-})
+router.post(
+  '/scheduled',
+  validateRequest({
+    body: scheduledReportSchema,
+  }),
+  async (req, res, next) => {
+    try {
+      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      res.json(await service.createScheduledReport(req.body))
+    } catch (error) {
+      next(error)
+    }
+  },
+)
 
-router.patch('/scheduled/:id', async (req, res, next) => {
-  try {
-    const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
-    res.json(await service.updateScheduledReport(req.params.id, req.body))
-  } catch (error) {
-    next(error)
-  }
-})
+router.patch(
+  '/scheduled/:id',
+  validateRequest({
+    params: scheduledReportIdParamsSchema,
+    body: scheduledReportPatchSchema,
+  }),
+  async (req, res, next) => {
+    try {
+      const scheduleId = req.params.id as string
+      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      res.json(await service.updateScheduledReport(scheduleId, req.body))
+    } catch (error) {
+      next(error)
+    }
+  },
+)
 
-router.delete('/scheduled/:id', async (req, res, next) => {
-  try {
-    const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
-    await service.deleteScheduledReport(req.params.id)
-    res.status(204).send()
-  } catch (error) {
-    next(error)
-  }
-})
+router.delete(
+  '/scheduled/:id',
+  validateRequest({
+    params: scheduledReportIdParamsSchema,
+  }),
+  async (req, res, next) => {
+    try {
+      const scheduleId = req.params.id as string
+      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      await service.deleteScheduledReport(scheduleId)
+      res.status(204).send()
+    } catch (error) {
+      next(error)
+    }
+  },
+)
 
 export const reportsRoutes = router
