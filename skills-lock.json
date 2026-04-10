@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "nodejs-express-server": {
+      "source": "aj-geddes/useful-ai-prompts",
+      "sourceType": "github",
+      "computedHash": "8a7fe50351131f99b7bc7750bb4be6e7cbd7919b3b346c8fc7f857fb1ecad059"
+    },
+    "vitest": {
+      "source": "antfu/skills",
+      "sourceType": "github",
+      "computedHash": "0efd9cf8c56aada060d418d009cfe621a7915d0c73a958fe611985bc0c2fa4b8"
+    }
+  }
+}

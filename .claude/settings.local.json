@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Codes/CEDAR/src/**)",
+      "Read(//c/Codes/CEDAR/src/components/**)",
+      "Read(//c/Codes/CEDAR/supabase/**)",
+      "Read(//c/Codes/CEDAR/supabase/redesign//**)",
+      "Bash(npm run lint)",
+      "Bash(npm run lint -- *)",
+      "Bash(npm run build)",
+      "Bash(npm run dev)",
+      "Bash(npm test)",
+      "Bash(npm test -- *)",
+      "Bash(npm run test:watch)",
+      "Bash(npm run test:e2e)",
+      "Bash(npm run test:e2e:ui)",
+      "Bash(npm run test:e2e:headed)",
+      "Bash(npx jest *)",
+      "Bash(npx playwright *)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(find /c/Codes/CEDAR/src/app -name \"page.tsx\" -exec wc -l {} +)"
+    ],
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/*.pem)",
+      "Read(**/id_rsa)",
+      "Read(**/id_ed25519)"
+    ]
+  }
+}
