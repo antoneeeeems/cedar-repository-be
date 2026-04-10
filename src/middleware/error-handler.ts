@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express'
 
+import { env } from '@/config/env'
 import type { ErrorResponseBody } from '@/types/api'
 
 export class HttpError extends Error {
@@ -32,9 +33,11 @@ export function errorHandler(error: unknown, _req: Request, res: Response<ErrorR
   }
 
   if (error instanceof Error) {
+    const responseMessage = env.NODE_ENV === 'production' ? 'Unexpected server error.' : error.message
+
     res.status(500).json({
       error: {
-        message: error.message,
+        message: responseMessage,
         status: 500,
       },
     })

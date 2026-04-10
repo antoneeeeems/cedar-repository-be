@@ -67,6 +67,10 @@ export type SignInResult =
   | { ok: true; session: AdminSession }
   | { ok: false; message: string }
 
+export type RefreshSessionResult =
+  | { ok: true; session: AdminSession }
+  | { ok: false; message: string }
+
 export async function signInAdmin(email: string, password: string): Promise<SignInResult> {
   const normalizedEmail = email.trim()
 
@@ -106,6 +110,43 @@ export async function signInAdmin(email: string, password: string): Promise<Sign
     fallbackEmail: normalizedEmail,
     accessToken: signInData.session.access_token,
     refreshToken: signInData.session.refresh_token,
+  })
+
+  return { ok: true, session }
+}
+
+export async function refreshAdminSession(refreshToken: string): Promise<RefreshSessionResult> {
+  const supabase = getSupabaseAnonClient()
+  const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession({
+    refresh_token: refreshToken,
+  })
+
+  if (refreshError || !refreshData.session || !refreshData.user) {
+    return {
+      ok: false,
+      message: refreshError?.message ?? 'Unable to refresh the current session.',
+    }
+  }
+
+  const { data: profile } = await getSupabaseAnonClient(refreshData.session.access_token)
+    .schema('public')
+    .from('profiles')
+    .select('full_name,email,role_code,user_status_code')
+    .eq('id', refreshData.user.id)
+    .maybeSingle()
+
+  if (!canAccessAdmin(profile)) {
+    return {
+      ok: false,
+      message: 'This account does not have portal access.',
+    }
+  }
+
+  const session = buildAdminSession({
+    profile,
+    fallbackEmail: refreshData.user.email ?? 'unknown@cedar.local',
+    accessToken: refreshData.session.access_token,
+    refreshToken: refreshData.session.refresh_token,
   })
 
   return { ok: true, session }

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 import type {
   AdminAuditEvent,
   AdminStatCard,
@@ -17,7 +19,7 @@ import type {
   YearOverYearData,
 } from '@/types/admin'
 import type { AdminRepository, DashboardSnapshot, ReportSnapshotWithData } from '@/lib/admin/repositories/types'
-import { getSupabaseAnonClient } from '@/lib/supabase'
+import { getSupabaseAnonClient, getSupabaseServiceClient } from '@/lib/supabase'
 
 type RepositoryItemRow = {
   id: number
@@ -103,6 +105,7 @@ type ScheduledReportRow = {
 }
 
 const schemaName = 'public'
+const PROFILE_SELECT_COLUMNS = 'id,email,full_name,role_code,user_status_code,last_login_at,created_at,organizational_units(name)'
 
 export class ApiAdminRepository implements AdminRepository {
   private readonly supabase
@@ -242,8 +245,7 @@ export class ApiAdminRepository implements AdminRepository {
     return (data as RepositoryItemRow[]).map(mapSubmission)
   }
 
-  async listStudentSubmissions(ownerEmail: string): Promise<SubmissionRecord[]> {
-    void ownerEmail
+  async listStudentSubmissions(_ownerEmail: string): Promise<SubmissionRecord[]> {
     const userId = await this.getActiveUserId()
     if (!userId) return []
 
@@ -511,35 +513,182 @@ export class ApiAdminRepository implements AdminRepository {
   async listUsers(): Promise<UserRecord[]> {
     const { data, error } = await this.supabase
       .from('profiles')
-      .select('id,email,full_name,role_code,user_status_code,last_login_at,created_at,organizational_units(name)')
+      .select(PROFILE_SELECT_COLUMNS)
       .order('created_at', { ascending: false })
 
     if (error || !data) {
       return []
     }
 
-    return (data as ProfileRow[]).map((profile) => ({
-      id: profile.id,
-      name: profile.full_name ?? 'Unknown User',
-      email: profile.email ?? '',
-      role: mapRoleCodeToUserRole(profile.role_code),
-      department: extractUnitName(profile.organizational_units) ?? 'Repository Office',
-      status: mapUserStatusCode(profile.user_status_code),
-      lastLogin: profile.last_login_at ? new Date(profile.last_login_at).toLocaleDateString('en-US') : 'Never',
-      dateAdded: profile.created_at ? new Date(profile.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : undefined,
-    }))
+    return (data as ProfileRow[]).map(mapProfileToUserRecord)
   }
 
   async createUser(user: UserRecord): Promise<UserRecord> {
-    throw new Error(`Admin user provisioning is not yet implemented for the redesigned repository model (email: ${user.email}).`)
+    const serviceClient = getSupabaseServiceClient()
+    const normalizedEmail = user.email.trim().toLowerCase()
+    const normalizedName = user.name.trim()
+
+    if (!normalizedEmail || !normalizedName) {
+      throw new Error('User name and email are required.')
+    }
+
+    const generatedPassword = `Cedar!${randomUUID()}Aa1`
+    const { data: createdUserData, error: createUserError } = await serviceClient.auth.admin.createUser({
+      email: normalizedEmail,
+      password: generatedPassword,
+      email_confirm: true,
+      user_metadata: {
+        full_name: normalizedName,
+      },
+    })
+
+    if (createUserError || !createdUserData.user?.id) {
+      throw new Error(`Failed to create user account: ${createUserError?.message ?? 'unknown error'}`)
+    }
+
+    const nextRoleCode = mapUserRoleToRoleCode(user.role)
+    const nextStatusCode = mapUserStatusToCode(user.status)
+    const profileClient = serviceClient.schema(schemaName)
+    const { data: profileData, error: profileError } = await profileClient
+      .from('profiles')
+      .upsert(
+        {
+          id: createdUserData.user.id,
+          email: normalizedEmail,
+          full_name: normalizedName,
+          role_code: nextRoleCode,
+          user_status_code: nextStatusCode,
+        },
+        { onConflict: 'id' },
+      )
+      .select(PROFILE_SELECT_COLUMNS)
+      .maybeSingle()
+
+    if (profileError || !profileData) {
+      await serviceClient.auth.admin.deleteUser(createdUserData.user.id)
+      throw new Error(`Failed to persist user profile: ${profileError?.message ?? 'unknown error'}`)
+    }
+
+    await profileClient
+      .from('audit_events')
+      .insert({
+        actor_profile_id: this.activeUserId,
+        actor_label: 'CEDAR Admin',
+        action: 'user.created',
+        entity_type: 'user',
+        entity_pk: createdUserData.user.id,
+        outcome: 'success',
+      })
+
+    return mapProfileToUserRecord(profileData as ProfileRow)
   }
 
   async updateUser(userId: string, patch: Partial<UserRecord>): Promise<UserRecord | undefined> {
-    throw new Error(`Admin user updates are not yet implemented for the redesigned repository model (userId: ${userId}, fields: ${Object.keys(patch).join(', ') || 'none'}).`)
+    const serviceClient = getSupabaseServiceClient()
+    const profileClient = serviceClient.schema(schemaName)
+    const profilePatch: Record<string, unknown> = {}
+
+    if (patch.name !== undefined) {
+      profilePatch.full_name = patch.name.trim()
+    }
+
+    if (patch.email !== undefined) {
+      const nextEmail = patch.email.trim().toLowerCase()
+      profilePatch.email = nextEmail
+
+      const { error: updateAuthError } = await serviceClient.auth.admin.updateUserById(userId, {
+        email: nextEmail,
+      })
+
+      if (updateAuthError) {
+        throw new Error(`Failed to update auth user email: ${updateAuthError.message}`)
+      }
+    }
+
+    if (patch.role !== undefined) {
+      profilePatch.role_code = mapUserRoleToRoleCode(patch.role)
+    }
+
+    if (patch.status !== undefined) {
+      profilePatch.user_status_code = mapUserStatusToCode(patch.status)
+    }
+
+    let profileData: ProfileRow | null = null
+
+    if (Object.keys(profilePatch).length > 0) {
+      const { data, error } = await profileClient
+        .from('profiles')
+        .update(profilePatch)
+        .eq('id', userId)
+        .select(PROFILE_SELECT_COLUMNS)
+        .maybeSingle()
+
+      if (error) {
+        throw new Error(`Failed to update user profile: ${error.message}`)
+      }
+
+      profileData = (data as ProfileRow | null) ?? null
+    } else {
+      const { data, error } = await profileClient
+        .from('profiles')
+        .select(PROFILE_SELECT_COLUMNS)
+        .eq('id', userId)
+        .maybeSingle()
+
+      if (error) {
+        throw new Error(`Failed to load user profile: ${error.message}`)
+      }
+
+      profileData = (data as ProfileRow | null) ?? null
+    }
+
+    if (!profileData) {
+      return undefined
+    }
+
+    await profileClient
+      .from('audit_events')
+      .insert({
+        actor_profile_id: this.activeUserId,
+        actor_label: 'CEDAR Admin',
+        action: 'user.updated',
+        entity_type: 'user',
+        entity_pk: userId,
+        outcome: 'success',
+      })
+
+    return mapProfileToUserRecord(profileData)
   }
 
   async deleteUser(userId: string): Promise<void> {
-    throw new Error(`Admin user deletion is not yet implemented for the redesigned repository model (userId: ${userId}).`)
+    const serviceClient = getSupabaseServiceClient()
+    const profileClient = serviceClient.schema(schemaName)
+
+    const { error: profileDeleteError } = await profileClient
+      .from('profiles')
+      .delete()
+      .eq('id', userId)
+
+    if (profileDeleteError) {
+      throw new Error(`Failed to delete user profile: ${profileDeleteError.message}`)
+    }
+
+    const { error: authDeleteError } = await serviceClient.auth.admin.deleteUser(userId)
+
+    if (authDeleteError) {
+      throw new Error(`Failed to delete auth user: ${authDeleteError.message}`)
+    }
+
+    await profileClient
+      .from('audit_events')
+      .insert({
+        actor_profile_id: this.activeUserId,
+        actor_label: 'CEDAR Admin',
+        action: 'user.deleted',
+        entity_type: 'user',
+        entity_pk: userId,
+        outcome: 'success',
+      })
   }
 
   async getSettings(): Promise<AllSettings> {
@@ -798,10 +947,37 @@ function mapRoleCodeToUserRole(roleCode: string | null | undefined): UserRecord[
   return 'Student'
 }
 
+function mapUserRoleToRoleCode(role: UserRecord['role']) {
+  if (role === 'Super Admin') return 'super-admin'
+  if (role === 'Admin') return 'admin'
+  return 'student'
+}
+
 function mapUserStatusCode(statusCode: string | null | undefined): UserRecord['status'] {
   if (statusCode === 'inactive') return 'Inactive'
   if (statusCode === 'pending') return 'Pending'
   return 'Active'
+}
+
+function mapUserStatusToCode(status: UserRecord['status']) {
+  if (status === 'Inactive') return 'inactive'
+  if (status === 'Pending') return 'pending'
+  return 'active'
+}
+
+function mapProfileToUserRecord(profile: ProfileRow): UserRecord {
+  return {
+    id: profile.id,
+    name: profile.full_name ?? 'Unknown User',
+    email: profile.email ?? '',
+    role: mapRoleCodeToUserRole(profile.role_code),
+    department: extractUnitName(profile.organizational_units) ?? 'Repository Office',
+    status: mapUserStatusCode(profile.user_status_code),
+    lastLogin: profile.last_login_at ? new Date(profile.last_login_at).toLocaleDateString('en-US') : 'Never',
+    dateAdded: profile.created_at
+      ? new Date(profile.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : undefined,
+  }
 }
 
 function reviewActionToStatus(action: ReviewActionType) {

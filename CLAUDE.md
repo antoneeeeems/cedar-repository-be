@@ -12,7 +12,13 @@ Standalone Express.js + TypeScript API for CEDAR.
 
 - Uses the Supabase service role key on the server.
 - Authorization is enforced in Express middleware.
-- Frontend clients must send Supabase access tokens as Bearer tokens.
+- Frontend clients must send backend-issued access tokens as Bearer tokens.
+- Auth contract:
+  - `POST /api/admin/auth/login` returns `{ session }` with `token` + `refreshToken`.
+  - `POST /api/admin/auth/refresh` exchanges refresh token for a new session.
+  - `GET /api/admin/auth/session` validates current token and returns normalized admin session.
+  - `POST /api/admin/auth/logout` is stateless and returns `204`.
+- `CORS_ORIGIN` supports comma-separated origins.
 
 <!-- autoskills:start -->
 

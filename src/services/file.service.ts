@@ -35,8 +35,28 @@ export type DownloadedFilePayload = {
   contentEncoding?: string
 }
 
+type DownloadFileRow = {
+  id: number
+  repository_item_id: number
+  storage_bucket: string
+  storage_object_path: string
+  original_filename: string
+  mime_type: string | null
+  visibility_code: string
+  repository_items:
+    | {
+        workflow_status_code: string | null
+        visibility_code: string | null
+      }
+    | Array<{
+        workflow_status_code: string | null
+        visibility_code: string | null
+      }>
+    | null
+}
+
 function sanitizeFilename(value: string) {
-  return value.replace(/[^a-zA-Z0-9._-]+/g, '-')
+  return value.replaceAll(/[^a-zA-Z0-9._-]+/g, '-')
 }
 
 export async function uploadThesisFile(input: UploadFileInput): Promise<UploadedFileRecord> {
@@ -128,6 +148,38 @@ export async function downloadThesisFile(fileId: string, requesterId?: string): 
     throw new HttpError(404, 'Repository file not found.')
   }
 
+  return downloadRepositoryFile(data as DownloadFileRow, requesterId)
+}
+
+export async function downloadPrimaryThesisFileByThesisId(
+  thesisId: string,
+  requesterId?: string,
+): Promise<DownloadedFilePayload> {
+  const supabase = getSupabaseServiceClient().schema('public')
+  const numericThesisId = Number(thesisId)
+
+  if (!Number.isFinite(numericThesisId)) {
+    throw new HttpError(400, 'A valid thesis id is required.')
+  }
+
+  const { data, error } = await supabase
+    .from('repository_item_files')
+    .select('id,repository_item_id,storage_bucket,storage_object_path,original_filename,mime_type,visibility_code,repository_items(workflow_status_code,visibility_code)')
+    .eq('repository_item_id', numericThesisId)
+    .order('is_primary', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error || !data) {
+    throw new HttpError(404, 'No thesis file is available for this submission.')
+  }
+
+  return downloadRepositoryFile(data as DownloadFileRow, requesterId)
+}
+
+async function downloadRepositoryFile(file: DownloadFileRow, requesterId?: string): Promise<DownloadedFilePayload> {
+  const supabase = getSupabaseServiceClient().schema('public')
   let canRead = false
 
   if (requesterId) {
@@ -140,11 +192,11 @@ export async function downloadThesisFile(fileId: string, requesterId?: string): 
     canRead = canAccessAdmin(profile)
   }
 
-  const item = Array.isArray(data.repository_items) ? data.repository_items[0] : data.repository_items
+  const item = Array.isArray(file.repository_items) ? file.repository_items[0] : file.repository_items
 
   if (!canRead) {
     const isPublicItem = item?.workflow_status_code === 'published' && item?.visibility_code === 'public'
-    const isPublicFile = data.visibility_code === 'public'
+    const isPublicFile = file.visibility_code === 'public'
 
     if (!isPublicItem || !isPublicFile) {
       throw new HttpError(403, 'This file is not publicly accessible.')
@@ -152,8 +204,8 @@ export async function downloadThesisFile(fileId: string, requesterId?: string): 
   }
 
   const { data: fileBlob, error: downloadError } = await getSupabaseServiceClient().storage
-    .from(data.storage_bucket)
-    .download(data.storage_object_path)
+    .from(file.storage_bucket)
+    .download(file.storage_object_path)
 
   if (downloadError || !fileBlob) {
     throw new HttpError(500, `Failed to download file: ${downloadError?.message ?? 'unknown error'}`)
@@ -162,15 +214,15 @@ export async function downloadThesisFile(fileId: string, requesterId?: string): 
   await supabase
     .from('download_events')
     .insert({
-      repository_item_id: data.repository_item_id,
-      repository_item_file_id: data.id,
+      repository_item_id: file.repository_item_id,
+      repository_item_file_id: file.id,
       actor_profile_id: requesterId ?? null,
     })
 
   return {
     buffer: Buffer.from(await fileBlob.arrayBuffer()),
-    originalFilename: data.original_filename,
-    contentType: data.mime_type || 'application/pdf',
+    originalFilename: file.original_filename,
+    contentType: file.mime_type || 'application/pdf',
     contentEncoding: 'gzip',
   }
 }

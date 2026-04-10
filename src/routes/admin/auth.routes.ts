@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { HttpError } from '@/middleware/error-handler'
 import { validateRequest } from '@/middleware/validate'
-import { buildAdminSession, canAccessAdmin, signInAdmin } from '@/services/auth.service'
+import { buildAdminSession, canAccessAdmin, refreshAdminSession, signInAdmin } from '@/services/auth.service'
 import { getSupabaseAnonClient } from '@/lib/supabase'
 
 const router = Router()
@@ -13,7 +13,7 @@ router.post(
   '/login',
   validateRequest({
     body: z.object({
-      email: z.string().email(),
+      email: z.email(),
       password: z.string().min(1),
     }),
   }),
@@ -35,6 +35,28 @@ router.post(
 router.post('/logout', requireAuth, async (_req, res) => {
   res.status(204).send()
 })
+
+router.post(
+  '/refresh',
+  validateRequest({
+    body: z.object({
+      refreshToken: z.string().min(1),
+    }),
+  }),
+  async (req, res, next) => {
+    try {
+      const result = await refreshAdminSession(req.body.refreshToken)
+
+      if (!result.ok) {
+        throw new HttpError(401, result.message)
+      }
+
+      res.json({ session: result.session })
+    } catch (error) {
+      next(error)
+    }
+  },
+)
 
 router.get('/session', requireAuth, requireAdmin, async (req, res, next) => {
   try {
