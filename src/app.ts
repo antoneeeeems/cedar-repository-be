@@ -1,3 +1,4 @@
+import compression from 'compression'
 import cors from 'cors'
 import express from 'express'
 import helmet from 'helmet'
@@ -12,6 +13,7 @@ export function createApp() {
 
   app.use(helmet())
   app.use(cors(corsOptions))
+  app.use(compression())
   app.use(express.json({ limit: '5mb' }))
   app.use(express.urlencoded({ extended: true }))
   app.use(requestLogger)

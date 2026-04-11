@@ -1,4 +1,5 @@
 import express from 'express'
+import { Readable } from 'node:stream'
 import request from 'supertest'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -47,7 +48,8 @@ describe('downloadRoutes', () => {
 
   it('should return thesis file payload for query downloads', async () => {
     mockedDownloadByThesisId.mockResolvedValue({
-      buffer: Buffer.from('sample-pdf-binary'),
+      stream: Readable.from(['sample-pdf-binary']),
+      contentLength: 'sample-pdf-binary'.length,
       originalFilename: 'sample.pdf',
       contentType: 'application/pdf',
     })
@@ -63,7 +65,8 @@ describe('downloadRoutes', () => {
 
   it('should return file payload for id downloads', async () => {
     mockedDownloadByFileId.mockResolvedValue({
-      buffer: Buffer.from('sample-pdf-binary'),
+      stream: Readable.from(['sample-pdf-binary']),
+      contentLength: 'sample-pdf-binary'.length,
       originalFilename: 'sample.pdf',
       contentType: 'application/pdf',
     })

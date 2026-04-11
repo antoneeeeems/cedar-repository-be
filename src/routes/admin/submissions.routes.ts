@@ -3,8 +3,9 @@ import { z } from 'zod'
 
 import { requireAdmin, requireAuth } from '@/middleware/auth'
 import { validateRequest } from '@/middleware/validate'
-import { ApiAdminRepository } from '@/services/admin.service'
 import type { SubmissionCursorQuery } from '@/types/admin'
+
+import { getAdminRepository } from '@/routes/admin/get-admin-repository'
 
 const router = Router()
 
@@ -60,7 +61,7 @@ router.get(
   }),
   async (req, res, next) => {
     try {
-      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      const service = getAdminRepository(req)
       res.json(await service.listSubmissionsCursor(req.query as unknown as SubmissionCursorQuery))
     } catch (error) {
       next(error)
@@ -70,7 +71,7 @@ router.get(
 
 router.get('/submissions', async (req, res, next) => {
   try {
-    const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+    const service = getAdminRepository(req)
     res.json(await service.listSubmissions())
   } catch (error) {
     next(error)
@@ -79,7 +80,7 @@ router.get('/submissions', async (req, res, next) => {
 
 router.get('/submissions/summary', async (req, res, next) => {
   try {
-    const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+    const service = getAdminRepository(req)
     res.json(await service.getSubmissionSummaryCards())
   } catch (error) {
     next(error)
@@ -88,7 +89,7 @@ router.get('/submissions/summary', async (req, res, next) => {
 
 router.get('/submissions/draft', async (req, res, next) => {
   try {
-    const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+    const service = getAdminRepository(req)
     res.json(await service.getSubmissionDraft())
   } catch (error) {
     next(error)
@@ -102,7 +103,7 @@ router.put(
   }),
   async (req, res, next) => {
     try {
-      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      const service = getAdminRepository(req)
       res.json(await service.saveSubmissionDraft(req.body))
     } catch (error) {
       next(error)
@@ -112,7 +113,7 @@ router.put(
 
 router.delete('/submissions/draft', async (req, res, next) => {
   try {
-    const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+    const service = getAdminRepository(req)
     await service.clearSubmissionDraft()
     res.status(204).send()
   } catch (error) {
@@ -130,7 +131,7 @@ router.post(
   }),
   async (req, res, next) => {
     try {
-      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      const service = getAdminRepository(req)
       res.json(await service.submitSubmissionDraft(req.body))
     } catch (error) {
       next(error)
@@ -146,7 +147,7 @@ router.get(
   async (req, res, next) => {
     try {
       const submissionId = req.params.id as string
-      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      const service = getAdminRepository(req)
       res.json(await service.getSubmissionById(submissionId))
     } catch (error) {
       next(error)
@@ -162,7 +163,7 @@ router.get(
   async (req, res, next) => {
     try {
       const submissionId = req.params.id as string
-      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      const service = getAdminRepository(req)
       res.json(await service.getSubmissionReviewHistory(submissionId))
     } catch (error) {
       next(error)
@@ -189,7 +190,7 @@ router.post(
   async (req, res, next) => {
     try {
       const submissionId = req.params.id as string
-      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      const service = getAdminRepository(req)
       res.json(
         await service.reviewSubmission(
           submissionId,
@@ -206,7 +207,7 @@ router.post(
 
 router.get('/student/submissions', async (req, res, next) => {
   try {
-    const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+    const service = getAdminRepository(req)
     res.json(await service.listStudentSubmissions(req.user?.email ?? ''))
   } catch (error) {
     next(error)
@@ -215,7 +216,7 @@ router.get('/student/submissions', async (req, res, next) => {
 
 router.get('/student/dashboard', async (req, res, next) => {
   try {
-    const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+    const service = getAdminRepository(req)
     res.json(await service.getStudentDashboardSnapshot(req.user?.email ?? ''))
   } catch (error) {
     next(error)

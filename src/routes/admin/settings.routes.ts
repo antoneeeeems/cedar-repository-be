@@ -3,7 +3,8 @@ import { z } from 'zod'
 
 import { requireAdmin, requireAuth } from '@/middleware/auth'
 import { validateRequest } from '@/middleware/validate'
-import { ApiAdminRepository } from '@/services/admin.service'
+
+import { getAdminRepository } from '@/routes/admin/get-admin-repository'
 
 const router = Router()
 
@@ -11,7 +12,7 @@ router.use(requireAuth, requireAdmin)
 
 router.get('/', async (req, res, next) => {
   try {
-    const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+    const service = getAdminRepository(req)
     res.json(await service.getSettings())
   } catch (error) {
     next(error)
@@ -35,7 +36,7 @@ router.patch(
   }),
   async (req, res, next) => {
     try {
-      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      const service = getAdminRepository(req)
       res.json(await service.updateSettings(String(req.params.section) as keyof import('@/types/admin').AllSettings, req.body))
     } catch (error) {
       next(error)

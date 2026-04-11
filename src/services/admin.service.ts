@@ -123,6 +123,9 @@ type UserCursorToken = {
 
 const schemaName = 'public'
 const PROFILE_SELECT_COLUMNS = 'id,email,full_name,role_code,user_status_code,last_login_at,created_at,organizational_units(name)'
+const REPORT_SUBMISSIONS_LIMIT = 500
+const REPORT_USERS_LIMIT = 500
+const REPORT_AUDIT_EVENTS_LIMIT = 200
 
 export class ApiAdminRepository implements AdminRepository {
   private readonly supabase
@@ -159,9 +162,9 @@ export class ApiAdminRepository implements AdminRepository {
 
   async getReportSnapshotWithData(filters?: Partial<ReportFilters>): Promise<ReportSnapshotWithData> {
     const [submissions, users, auditEvents] = await Promise.all([
-      this.listSubmissions(),
-      this.listUsers(),
-      this.listAuditEvents(),
+      this.listSubmissions(REPORT_SUBMISSIONS_LIMIT),
+      this.listUsers(REPORT_USERS_LIMIT),
+      this.listAuditEvents(undefined, REPORT_AUDIT_EVENTS_LIMIT),
     ])
     const normalizedFilters = normalizeReportFilters(filters)
     const filteredSubmissions = filterSubmissions(submissions, normalizedFilters)
@@ -184,11 +187,17 @@ export class ApiAdminRepository implements AdminRepository {
     return { snapshot, submissions, auditEvents }
   }
 
-  async listAuditEvents(): Promise<AdminAuditEvent[]> {
-    const { data, error } = await this.supabase
+  async listAuditEvents(_filters?: Partial<ReportFilters>, limit?: number): Promise<AdminAuditEvent[]> {
+    let query = this.supabase
       .from('audit_events')
       .select('id,occurred_at,actor_label,action,entity_type,entity_pk,outcome')
       .order('occurred_at', { ascending: false })
+
+    if (typeof limit === 'number') {
+      query = query.limit(limit)
+    }
+
+    const { data, error } = await query
 
     if (error || !data) {
       return []
@@ -248,12 +257,18 @@ export class ApiAdminRepository implements AdminRepository {
     ]
   }
 
-  async listSubmissions(): Promise<SubmissionRecord[]> {
-    const { data, error } = await this.supabase
+  async listSubmissions(limit?: number): Promise<SubmissionRecord[]> {
+    let query = this.supabase
       .from('repository_items')
       .select('id,title,abstract,degree_name,program_name,keywords,created_at,submitted_at,workflow_status_code,repository_item_contributors(display_order,contributor_role_code,contributors(display_name)),organizational_units(name)')
       .eq('item_type_code', 'thesis')
       .order('created_at', { ascending: false })
+
+    if (typeof limit === 'number') {
+      query = query.limit(limit)
+    }
+
+    const { data, error } = await query
 
     if (error || !data) {
       return []
@@ -600,11 +615,17 @@ export class ApiAdminRepository implements AdminRepository {
     return mapSubmission(data as RepositoryItemRow)
   }
 
-  async listUsers(): Promise<UserRecord[]> {
-    const { data, error } = await this.supabase
+  async listUsers(limit?: number): Promise<UserRecord[]> {
+    let query = this.supabase
       .from('profiles')
       .select(PROFILE_SELECT_COLUMNS)
       .order('created_at', { ascending: false })
+
+    if (typeof limit === 'number') {
+      query = query.limit(limit)
+    }
+
+    const { data, error } = await query
 
     if (error || !data) {
       return []
@@ -1333,7 +1354,16 @@ function createEmptyCursorConnection<T>(): CursorConnection<T> {
   }
 }
 
-function applySubmissionSearchFilter(queryBuilder: any, search: string, authorMatchedItemIds: number[]) {
+function applySubmissionSearchFilter<
+  T extends {
+    or: (filters: string) => T
+    ilike: (column: string, pattern: string) => T
+  },
+>(
+  queryBuilder: T,
+  search: string,
+  authorMatchedItemIds: number[],
+): T {
   if (search.length === 0) {
     return queryBuilder
   }

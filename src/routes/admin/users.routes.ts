@@ -3,8 +3,9 @@ import { z } from 'zod'
 
 import { requireAdmin, requireAuth } from '@/middleware/auth'
 import { validateRequest } from '@/middleware/validate'
-import { ApiAdminRepository } from '@/services/admin.service'
 import type { UserCursorQuery } from '@/types/admin'
+
+import { getAdminRepository } from '@/routes/admin/get-admin-repository'
 
 const router = Router()
 
@@ -44,7 +45,7 @@ router.get(
   }),
   async (req, res, next) => {
     try {
-      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      const service = getAdminRepository(req)
       res.json(await service.listUsersCursor(req.query as unknown as UserCursorQuery))
     } catch (error) {
       next(error)
@@ -54,7 +55,7 @@ router.get(
 
 router.get('/', async (req, res, next) => {
   try {
-    const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+    const service = getAdminRepository(req)
     res.json(await service.listUsers())
   } catch (error) {
     next(error)
@@ -68,7 +69,7 @@ router.post(
   }),
   async (req, res, next) => {
     try {
-      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      const service = getAdminRepository(req)
       res.json(await service.createUser(req.body))
     } catch (error) {
       next(error)
@@ -85,7 +86,7 @@ router.patch(
   async (req, res, next) => {
     try {
       const userId = req.params.id as string
-      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      const service = getAdminRepository(req)
       res.json(await service.updateUser(userId, req.body))
     } catch (error) {
       next(error)
@@ -101,7 +102,7 @@ router.delete(
   async (req, res, next) => {
     try {
       const userId = req.params.id as string
-      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      const service = getAdminRepository(req)
       await service.deleteUser(userId)
       res.status(204).send()
     } catch (error) {

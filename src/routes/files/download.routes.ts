@@ -17,10 +17,12 @@ router.get('/download', optionalAuth, async (req, res, next) => {
     const file = await downloadPrimaryThesisFileByThesisId(thesisId, req.user?.id)
     res.setHeader('Content-Type', file.contentType)
     res.setHeader('Content-Disposition', `inline; filename="${file.originalFilename}"`)
+    res.setHeader('Content-Length', String(file.contentLength))
     if (file.contentEncoding) {
       res.setHeader('Content-Encoding', file.contentEncoding)
     }
-    res.send(file.buffer)
+    file.stream.on('error', next)
+    file.stream.pipe(res)
   } catch (error) {
     next(error)
   }
@@ -31,10 +33,12 @@ router.get('/download/:fileId', optionalAuth, async (req, res, next) => {
     const file = await downloadThesisFile(String(req.params.fileId), req.user?.id)
     res.setHeader('Content-Type', file.contentType)
     res.setHeader('Content-Disposition', `inline; filename="${file.originalFilename}"`)
+    res.setHeader('Content-Length', String(file.contentLength))
     if (file.contentEncoding) {
       res.setHeader('Content-Encoding', file.contentEncoding)
     }
-    res.send(file.buffer)
+    file.stream.on('error', next)
+    file.stream.pipe(res)
   } catch (error) {
     next(error)
   }

@@ -4,8 +4,7 @@ import { z } from 'zod'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { HttpError } from '@/middleware/error-handler'
 import { validateRequest } from '@/middleware/validate'
-import { buildAdminSession, canAccessAdmin, refreshAdminSession, signInAdmin } from '@/services/auth.service'
-import { getSupabaseAnonClient } from '@/lib/supabase'
+import { buildAdminSession, refreshAdminSession, signInAdmin } from '@/services/auth.service'
 
 const router = Router()
 
@@ -60,23 +59,26 @@ router.post(
 
 router.get('/session', requireAuth, requireAdmin, async (req, res, next) => {
   try {
-    const accessToken = String(req.headers.authorization).replace(/^Bearer\s+/i, '')
-    const { data, error } = await getSupabaseAnonClient(accessToken)
-      .schema('public')
-      .from('profiles')
-      .select('full_name,email,role_code,user_status_code')
-      .eq('id', req.user!.id)
-      .maybeSingle()
+    const authorizationHeader = req.headers.authorization
+    if (typeof authorizationHeader !== 'string') {
+      throw new HttpError(403, 'Admin session is invalid.')
+    }
 
-    if (error || !data || !canAccessAdmin(data)) {
+    const accessToken = authorizationHeader.replace(/^Bearer\s+/i, '')
+    if (!req.user) {
       throw new HttpError(403, 'Admin session is invalid.')
     }
 
     res.json({
       session: buildAdminSession({
-        profile: data,
-        fallbackEmail: req.user!.email,
-        accessToken: String(req.headers.authorization).replace(/^Bearer\s+/i, ''),
+        profile: {
+          full_name: req.user.fullName,
+          email: req.user.email,
+          role_code: req.user.roleCode,
+          user_status_code: req.user.userStatusCode,
+        },
+        fallbackEmail: req.user.email,
+        accessToken,
       }),
     })
   } catch (error) {

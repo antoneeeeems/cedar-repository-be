@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto'
+import { Readable } from 'node:stream'
+import type { ReadableStream } from 'node:stream/web'
 import { gzip } from 'node:zlib'
 import { promisify } from 'node:util'
 
@@ -29,7 +31,8 @@ export type UploadedFileRecord = {
 }
 
 export type DownloadedFilePayload = {
-  buffer: Buffer
+  stream: Readable
+  contentLength: number
   originalFilename: string
   contentType: string
   contentEncoding?: string
@@ -220,7 +223,8 @@ async function downloadRepositoryFile(file: DownloadFileRow, requesterId?: strin
     })
 
   return {
-    buffer: Buffer.from(await fileBlob.arrayBuffer()),
+    stream: Readable.fromWeb(fileBlob.stream() as unknown as ReadableStream),
+    contentLength: fileBlob.size,
     originalFilename: file.original_filename,
     contentType: file.mime_type || 'application/pdf',
     contentEncoding: 'gzip',

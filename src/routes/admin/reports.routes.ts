@@ -3,7 +3,8 @@ import { z } from 'zod'
 
 import { requireAdmin, requireAuth } from '@/middleware/auth'
 import { validateRequest } from '@/middleware/validate'
-import { ApiAdminRepository } from '@/services/admin.service'
+
+import { getAdminRepository } from '@/routes/admin/get-admin-repository'
 
 const router = Router()
 
@@ -45,7 +46,7 @@ router.get(
   }),
   async (req, res, next) => {
     try {
-      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      const service = getAdminRepository(req)
       res.json(await service.getReportSnapshot(req.query))
     } catch (error) {
       next(error)
@@ -60,7 +61,7 @@ router.get(
   }),
   async (req, res, next) => {
     try {
-      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      const service = getAdminRepository(req)
       res.json(await service.getReportSnapshotWithData(req.query))
     } catch (error) {
       next(error)
@@ -84,7 +85,7 @@ router.get(
   }),
   async (req, res, next) => {
     try {
-      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      const service = getAdminRepository(req)
       res.json(
         await service.getReportExportPayload(
           req.query.preset as import('@/types/admin').ReportExportPreset,
@@ -107,7 +108,7 @@ router.get(
   }),
   async (req, res, next) => {
     try {
-      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      const service = getAdminRepository(req)
       res.json(await service.getYearOverYearComparison())
     } catch (error) {
       next(error)
@@ -117,7 +118,7 @@ router.get(
 
 router.get('/scheduled', async (req, res, next) => {
   try {
-    const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+    const service = getAdminRepository(req)
     res.json(await service.listScheduledReports())
   } catch (error) {
     next(error)
@@ -131,7 +132,7 @@ router.post(
   }),
   async (req, res, next) => {
     try {
-      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      const service = getAdminRepository(req)
       res.json(await service.createScheduledReport(req.body))
     } catch (error) {
       next(error)
@@ -148,7 +149,7 @@ router.patch(
   async (req, res, next) => {
     try {
       const scheduleId = req.params.id as string
-      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      const service = getAdminRepository(req)
       res.json(await service.updateScheduledReport(scheduleId, req.body))
     } catch (error) {
       next(error)
@@ -164,7 +165,7 @@ router.delete(
   async (req, res, next) => {
     try {
       const scheduleId = req.params.id as string
-      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      const service = getAdminRepository(req)
       await service.deleteScheduledReport(scheduleId)
       res.status(204).send()
     } catch (error) {
