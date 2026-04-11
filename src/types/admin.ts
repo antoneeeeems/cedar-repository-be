@@ -58,6 +58,34 @@ export interface UserRecord {
   dateAdded?: string
 }
 
+export interface CursorPageInfo {
+  endCursor: string | null
+  hasNextPage: boolean
+}
+
+export interface CursorConnection<T> {
+  data: T[]
+  totalCount: number
+  pageInfo: CursorPageInfo
+}
+
+export type SubmissionSortOrder = 'date-desc' | 'date-asc'
+
+export interface SubmissionCursorQuery {
+  first: number
+  after?: string
+  search?: string
+  department?: string
+  status?: SubmissionStatus | 'all-status'
+  sortOrder?: SubmissionSortOrder
+}
+
+export interface UserCursorQuery {
+  first: number
+  after?: string
+  search?: string
+}
+
 export interface PermissionStatement {
   title: string
   intro: string

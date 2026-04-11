@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { requireAdmin, requireAuth } from '@/middleware/auth'
 import { validateRequest } from '@/middleware/validate'
 import { ApiAdminRepository } from '@/services/admin.service'
+import type { SubmissionCursorQuery } from '@/types/admin'
 
 const router = Router()
 
@@ -32,6 +33,40 @@ const submissionDraftSchema = z
     fileSize: z.number().optional(),
   })
   .partial()
+
+const submissionsCursorQuerySchema = z.object({
+  first: z.coerce.number().int().min(1).max(50).default(8),
+  after: z.string().min(1).optional(),
+  search: z.string().optional(),
+  department: z.string().optional(),
+  status: z.enum([
+    'all-status',
+    'Draft',
+    'Pending Review',
+    'Under Review',
+    'Approved',
+    'Rejected',
+    'Revision Requested',
+    'Published',
+    'Archived',
+  ]).optional(),
+  sortOrder: z.enum(['date-desc', 'date-asc']).optional(),
+})
+
+router.get(
+  '/submissions/cursor',
+  validateRequest({
+    query: submissionsCursorQuerySchema,
+  }),
+  async (req, res, next) => {
+    try {
+      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      res.json(await service.listSubmissionsCursor(req.query as unknown as SubmissionCursorQuery))
+    } catch (error) {
+      next(error)
+    }
+  },
+)
 
 router.get('/submissions', async (req, res, next) => {
   try {

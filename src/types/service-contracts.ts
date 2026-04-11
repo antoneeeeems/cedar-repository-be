@@ -2,6 +2,7 @@ import type {
   AdminAuditEvent,
   AdminStatCard,
   AllSettings,
+  CursorConnection,
   ReportFilters,
   ReportDateRange,
   ReportExportFormat,
@@ -13,8 +14,10 @@ import type {
   ScheduledReport,
   SettingsSectionKey,
   SubmissionDraft,
+  SubmissionCursorQuery,
   SubmissionRecord,
   SubmissionStatus,
+  UserCursorQuery,
   UserRecord,
   YearOverYearData,
 } from '@/types/admin'
@@ -59,6 +62,7 @@ export interface AdminRepository {
   ): Promise<ReportExportPayload>
   getSubmissionSummaryCards(): Promise<AdminStatCard[]>
   listSubmissions(): Promise<SubmissionRecord[]>
+  listSubmissionsCursor(query: SubmissionCursorQuery): Promise<CursorConnection<SubmissionRecord>>
   getSubmissionById(id: string): Promise<SubmissionRecord | undefined>
   getSubmissionReviewHistory(submissionId: string): Promise<ReviewHistoryItem[]>
   getSubmissionDraft(): Promise<SubmissionDraft>
@@ -72,6 +76,7 @@ export interface AdminRepository {
     payload: { comment?: string; issues?: string[]; adminNotes?: string }
   ): Promise<SubmissionRecord | undefined>
   listUsers(): Promise<UserRecord[]>
+  listUsersCursor(query: UserCursorQuery): Promise<CursorConnection<UserRecord>>
   createUser(user: UserRecord): Promise<UserRecord>
   updateUser(userId: string, patch: Partial<UserRecord>): Promise<UserRecord | undefined>
   deleteUser(userId: string): Promise<void>

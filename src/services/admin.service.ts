@@ -4,6 +4,7 @@ import type {
   AdminAuditEvent,
   AdminStatCard,
   AllSettings,
+  CursorConnection,
   ReportExportFormat,
   ReportExportPayload,
   ReportExportPreset,
@@ -14,8 +15,11 @@ import type {
   ScheduledReport,
   SettingsSectionKey,
   SubmissionDraft,
+  SubmissionCursorQuery,
   SubmissionRecord,
+  SubmissionSortOrder,
   UserRecord,
+  UserCursorQuery,
   YearOverYearData,
 } from '@/types/admin'
 import type { AdminRepository, DashboardSnapshot, ReportSnapshotWithData } from '@/lib/admin/repositories/types'
@@ -102,6 +106,19 @@ type ScheduledReportRow = {
   enabled: boolean
   last_run_at: string | null
   created_at: string
+}
+
+type SubmissionCursorToken = {
+  createdAt: string
+  id: number
+  filterKey: string
+  sortOrder: SubmissionSortOrder
+}
+
+type UserCursorToken = {
+  createdAt: string
+  id: string
+  filterKey: string
 }
 
 const schemaName = 'public'
@@ -243,6 +260,79 @@ export class ApiAdminRepository implements AdminRepository {
     }
 
     return (data as RepositoryItemRow[]).map(mapSubmission)
+  }
+
+  async listSubmissionsCursor(query: SubmissionCursorQuery): Promise<CursorConnection<SubmissionRecord>> {
+    const first = clampCursorPageSize(query.first)
+    const search = query.search?.trim() ?? ''
+    const department = query.department?.trim() ?? 'all-departments'
+    const status = query.status ?? 'all-status'
+    const sortOrder = query.sortOrder ?? 'date-desc'
+    const sortAscending = sortOrder === 'date-asc'
+    const filterKey = buildSubmissionFilterKey(search, department, status)
+    const cursor = parseSubmissionCursor(query.after, filterKey, sortOrder)
+
+    const unitId = department === 'all-departments' ? null : await this.findDepartmentUnitId(department)
+    if (department !== 'all-departments' && unitId === null) {
+      return createEmptyCursorConnection()
+    }
+
+    const authorMatchedItemIds = search.length > 0
+      ? await this.findSubmissionIdsByAuthorName(search)
+      : []
+
+    let queryBuilder = this.supabase
+      .from('repository_items')
+      .select('id,title,abstract,degree_name,program_name,keywords,created_at,submitted_at,workflow_status_code,repository_item_contributors(display_order,contributor_role_code,contributors(display_name)),organizational_units(name)', { count: 'exact' })
+      .eq('item_type_code', 'thesis')
+      .not('created_at', 'is', null)
+
+    if (unitId !== null) {
+      queryBuilder = queryBuilder.eq('owning_unit_id', unitId)
+    }
+
+    if (status !== 'all-status') {
+      queryBuilder = queryBuilder.eq('workflow_status_code', mapSubmissionStatusToWorkflowStatusCode(status))
+    }
+
+    queryBuilder = applySubmissionSearchFilter(queryBuilder, search, authorMatchedItemIds)
+
+    if (cursor) {
+      const comparator = sortAscending ? 'gt' : 'lt'
+      queryBuilder = queryBuilder.or(
+        `created_at.${comparator}.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.${comparator}.${cursor.id})`,
+      )
+    }
+
+    const { data, error, count } = await queryBuilder
+      .order('created_at', { ascending: sortAscending })
+      .order('id', { ascending: sortAscending })
+      .limit(first + 1)
+
+    if (error || !data) {
+      return createEmptyCursorConnection()
+    }
+
+    const rows = data as RepositoryItemRow[]
+    const hasNextPage = rows.length > first
+    const pageRows = hasNextPage ? rows.slice(0, first) : rows
+    const lastRow = pageRows.at(-1)
+
+    return {
+      data: pageRows.map(mapSubmission),
+      totalCount: count ?? 0,
+      pageInfo: {
+        endCursor: lastRow
+          ? encodeSubmissionCursor({
+            createdAt: lastRow.created_at ?? '',
+            id: lastRow.id,
+            filterKey,
+            sortOrder,
+          })
+          : null,
+        hasNextPage,
+      },
+    }
   }
 
   async listStudentSubmissions(_ownerEmail: string): Promise<SubmissionRecord[]> {
@@ -521,6 +611,57 @@ export class ApiAdminRepository implements AdminRepository {
     }
 
     return (data as ProfileRow[]).map(mapProfileToUserRecord)
+  }
+
+  async listUsersCursor(query: UserCursorQuery): Promise<CursorConnection<UserRecord>> {
+    const first = clampCursorPageSize(query.first)
+    const search = query.search?.trim() ?? ''
+    const filterKey = buildUserFilterKey(search)
+    const cursor = parseUserCursor(query.after, filterKey)
+
+    let queryBuilder = this.supabase
+      .from('profiles')
+      .select(PROFILE_SELECT_COLUMNS, { count: 'exact' })
+      .not('created_at', 'is', null)
+
+    if (search.length > 0) {
+      queryBuilder = queryBuilder.or(`full_name.ilike.%${search}%,email.ilike.%${search}%`)
+    }
+
+    if (cursor) {
+      queryBuilder = queryBuilder.or(
+        `created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})`,
+      )
+    }
+
+    const { data, error, count } = await queryBuilder
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(first + 1)
+
+    if (error || !data) {
+      return createEmptyCursorConnection()
+    }
+
+    const rows = data as ProfileRow[]
+    const hasNextPage = rows.length > first
+    const pageRows = hasNextPage ? rows.slice(0, first) : rows
+    const lastRow = pageRows.at(-1)
+
+    return {
+      data: pageRows.map(mapProfileToUserRecord),
+      totalCount: count ?? 0,
+      pageInfo: {
+        endCursor: lastRow
+          ? encodeUserCursor({
+            createdAt: lastRow.created_at ?? '',
+            id: lastRow.id,
+            filterKey,
+          })
+          : null,
+        hasNextPage,
+      },
+    }
   }
 
   async createUser(user: UserRecord): Promise<UserRecord> {
@@ -820,6 +961,44 @@ export class ApiAdminRepository implements AdminRepository {
     return this.activeUserId
   }
 
+  private async findDepartmentUnitId(departmentName: string) {
+    const normalized = normalizeLookupValue(departmentName)
+    const { data, error } = await this.supabase
+      .from('organizational_units')
+      .select('id,name')
+      .eq('unit_type_code', 'department')
+
+    if (error || !data) {
+      return null
+    }
+
+    const match = data.find((unit) => normalizeLookupValue(String(unit.name ?? '')) === normalized)
+    return match ? Number(match.id) : null
+  }
+
+  private async findSubmissionIdsByAuthorName(search: string) {
+    const normalizedSearch = search.trim()
+    if (!normalizedSearch) {
+      return []
+    }
+
+    const { data, error } = await this.supabase
+      .from('repository_item_contributors')
+      .select('repository_item_id,contributors!inner(display_name)')
+      .ilike('contributors.display_name', `%${normalizedSearch}%`)
+
+    if (error || !data) {
+      return []
+    }
+
+    const uniqueIds = new Set<number>()
+    for (const row of data as Array<{ repository_item_id: number }>) {
+      uniqueIds.add(row.repository_item_id)
+    }
+
+    return Array.from(uniqueIds)
+  }
+
   private async resolveDepartmentUnitId(departmentName: string) {
     const normalized = normalizeLookupValue(departmentName)
     const { data, error } = await this.supabase
@@ -1053,6 +1232,117 @@ function formatSubmissionDate(dateString: string | null | undefined) {
   const parsed = new Date(dateString)
   if (Number.isNaN(parsed.getTime())) return dateString
   return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function clampCursorPageSize(value: number) {
+  return Math.max(1, Math.min(50, Number.isFinite(value) ? Math.floor(value) : 8))
+}
+
+function buildSubmissionFilterKey(search: string, department: string, status: SubmissionCursorQuery['status']) {
+  return JSON.stringify({ search, department, status: status ?? 'all-status' })
+}
+
+function buildUserFilterKey(search: string) {
+  return JSON.stringify({ search })
+}
+
+function encodeSubmissionCursor(cursor: SubmissionCursorToken) {
+  return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url')
+}
+
+function parseSubmissionCursor(
+  rawCursor: string | undefined,
+  expectedFilterKey: string,
+  expectedSortOrder: SubmissionSortOrder,
+) {
+  if (!rawCursor) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(Buffer.from(rawCursor, 'base64url').toString('utf8')) as Partial<SubmissionCursorToken>
+
+    if (
+      typeof parsed.createdAt !== 'string' ||
+      typeof parsed.id !== 'number' ||
+      typeof parsed.filterKey !== 'string' ||
+      (parsed.sortOrder !== 'date-desc' && parsed.sortOrder !== 'date-asc')
+    ) {
+      return null
+    }
+
+    if (parsed.filterKey !== expectedFilterKey || parsed.sortOrder !== expectedSortOrder) {
+      return null
+    }
+
+    return parsed as SubmissionCursorToken
+  } catch {
+    return null
+  }
+}
+
+function encodeUserCursor(cursor: UserCursorToken) {
+  return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url')
+}
+
+function parseUserCursor(rawCursor: string | undefined, expectedFilterKey: string) {
+  if (!rawCursor) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(Buffer.from(rawCursor, 'base64url').toString('utf8')) as Partial<UserCursorToken>
+
+    if (
+      typeof parsed.createdAt !== 'string' ||
+      typeof parsed.id !== 'string' ||
+      typeof parsed.filterKey !== 'string'
+    ) {
+      return null
+    }
+
+    if (parsed.filterKey !== expectedFilterKey) {
+      return null
+    }
+
+    return parsed as UserCursorToken
+  } catch {
+    return null
+  }
+}
+
+function mapSubmissionStatusToWorkflowStatusCode(status: Exclude<SubmissionCursorQuery['status'], undefined | 'all-status'>) {
+  if (status === 'Draft') return 'draft'
+  if (status === 'Pending Review') return 'submitted'
+  if (status === 'Under Review') return 'under-review'
+  if (status === 'Revision Requested') return 'revision-requested'
+  if (status === 'Approved') return 'approved'
+  if (status === 'Published') return 'published'
+  if (status === 'Rejected') return 'rejected'
+  return 'archived'
+}
+
+function createEmptyCursorConnection<T>(): CursorConnection<T> {
+  return {
+    data: [],
+    totalCount: 0,
+    pageInfo: {
+      endCursor: null,
+      hasNextPage: false,
+    },
+  }
+}
+
+function applySubmissionSearchFilter(queryBuilder: any, search: string, authorMatchedItemIds: number[]) {
+  if (search.length === 0) {
+    return queryBuilder
+  }
+
+  if (authorMatchedItemIds.length > 0) {
+    return queryBuilder.or(`title.ilike.%${search}%,id.in.(${authorMatchedItemIds.join(',')})`)
+  }
+
+  return queryBuilder.ilike('title', `%${search}%`)
 }
 
 function normalizeReportFilters(filters?: Partial<ReportFilters>): ReportFilters {

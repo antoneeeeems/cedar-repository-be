@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { requireAdmin, requireAuth } from '@/middleware/auth'
 import { validateRequest } from '@/middleware/validate'
 import { ApiAdminRepository } from '@/services/admin.service'
+import type { UserCursorQuery } from '@/types/admin'
 
 const router = Router()
 
@@ -29,6 +30,27 @@ const createUserSchema = z.object({
 const updateUserSchema = createUserSchema.partial().refine((payload) => Object.keys(payload).length > 0, {
   message: 'At least one field must be provided for update.',
 })
+
+const usersCursorQuerySchema = z.object({
+  first: z.coerce.number().int().min(1).max(50).default(8),
+  after: z.string().min(1).optional(),
+  search: z.string().optional(),
+})
+
+router.get(
+  '/cursor',
+  validateRequest({
+    query: usersCursorQuerySchema,
+  }),
+  async (req, res, next) => {
+    try {
+      const service = new ApiAdminRepository(req.user?.id ?? null, String(req.headers.authorization).replace(/^Bearer\s+/i, ''))
+      res.json(await service.listUsersCursor(req.query as unknown as UserCursorQuery))
+    } catch (error) {
+      next(error)
+    }
+  },
+)
 
 router.get('/', async (req, res, next) => {
   try {
